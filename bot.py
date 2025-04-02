@@ -19,7 +19,7 @@ import signal
 import random
 from typing import Optional
 
-# Настройка логирования на русском
+# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -49,7 +49,6 @@ class NewsBot:
         self.shutdown_event.set()
 
     def _load_fallback_image(self) -> Optional[bytes]:
-        """Загружает резервное изображение при старте"""
         try:
             fallback_path = os.path.join("assets", "fallback.png")
             if os.path.exists(fallback_path):
@@ -104,42 +103,6 @@ class NewsBot:
                         )
                         conn.commit()
 
-                    elif task[0] == 'publish_post':
-                        _, post_id = task
-                        cursor.execute(
-                            "SELECT text, image_path, source, url FROM posts WHERE id=?",
-                            (post_id,)
-                        )
-                        post = cursor.fetchone()
-                        
-                        if post:
-                            text, image_path, source, url = post
-                            caption = f"{source}\n\n{text}\n\n{url}" if url else f"{source}\n\n{text}"
-                            
-                            if image_path and os.path.exists(image_path):
-                                with open(image_path, 'rb') as f:
-                                    asyncio.run_coroutine_threadsafe(
-                                        self.bot.send_photo(
-                                            chat_id=os.getenv("TELEGRAM_CHANNEL_ID"),
-                                            photo=f,
-                                            caption=caption[:1000]
-                                        ),
-                                        asyncio.get_event_loop()
-                                    )
-                            else:
-                                asyncio.run_coroutine_threadsafe(
-                                    self.bot.send_message(
-                                        chat_id=os.getenv("TELEGRAM_CHANNEL_ID"),
-                                        text=caption
-                                    ),
-                                    asyncio.get_event_loop()
-                                )
-                            
-                            cursor.execute(
-                                "UPDATE posts SET status='published' WHERE id=?",
-                                (post_id,)
-                            )
-                            conn.commit()
                 except queue.Empty:
                     pass
                 except Exception as e:
@@ -166,7 +129,6 @@ class NewsBot:
         self.groq = Groq(api_key=os.getenv("GROQ_API_KEY"))
         self.bot = Bot(token=os.getenv("TELEGRAM_BOT_TOKEN"))
         
-        # Проверка подключения к Stability API
         try:
             test_image = generate_image("test connection")
             if test_image:
@@ -205,7 +167,6 @@ class NewsBot:
         logger.info(f"Итого: {working_feeds}/{len(rss_urls)} рабочих RSS-лент")
 
     def _add_watermark(self, image_bytes: bytes) -> bytes:
-        """Добавляет водяной знак в правом нижнем углу"""
         try:
             img = Image.open(io.BytesIO(image_bytes)).convert('RGBA')
             width, height = img.size
@@ -213,7 +174,7 @@ class NewsBot:
             watermark = Image.new('RGBA', img.size, (0, 0, 0, 0))
             draw = ImageDraw.Draw(watermark)
             
-            font_size = max(int(width * 0.03), 14)  # Уменьшил размер шрифта
+            font_size = max(int(width * 0.03), 14)
             
             try:
                 font = ImageFont.truetype("arial.ttf", font_size)
@@ -224,15 +185,13 @@ class NewsBot:
             watermark_text = "@ai_revo"
             text_width = draw.textlength(watermark_text, font=font)
             
-            x = width - text_width - 10  # Уменьшил отступ
+            x = width - text_width - 10
             y = height - font_size - 10
             
-            # Полупрозрачный фон для водяного знака
             draw.rectangle(
                 [x - 5, y - 2, x + text_width + 5, y + font_size + 2],
                 fill=(0, 0, 0, 120))
             
-            # Белый текст
             draw.text((x, y), watermark_text, font=font, fill=(255, 255, 255, 220))
             
             watermarked = Image.alpha_composite(img, watermark)
@@ -260,7 +219,7 @@ class NewsBot:
    - Максимально 8-10 слов.  
 2. **Основной текст**:  
    - 🔍 Короткое введение (1-2 предложения).  
-   - 📌 **Ключевые факты** (3-5 пунктов, без лишних деталей).  
+   - 📌 Ключевые факты (3-5 пунктов, без лишних деталей).  
    - 💡 Итог: почему это важно?  
 3. **Оформление**:  
    - **Переводи** заголовки и текст на **русский**!  
@@ -285,8 +244,6 @@ class NewsBot:
             return f"📌 <b>{title}</b>\n\n{description}\n\n🔔 <b>Подпишись на @ai_revo</b>"
 
     def _generate_safe_image_prompt(self, title: str) -> str:
-        """Генерирует абсолютно безопасный промпт для изображения"""
-        # Удаляем все потенциально проблемные слова
         banned_words = ["nude", "sexy", "violence", "blood", "war", "kill", 
                        "attack", "weapon", "gun", "assault", "porn", "nsfw"]
         
@@ -294,7 +251,6 @@ class NewsBot:
         for word in banned_words:
             clean_title = clean_title.replace(word, "")
         
-        # Ограничиваем длину и добавляем безопасные модификаторы
         base_prompt = (
             "Abstract technology concept, digital art, futuristic style, "
             "blue and purple color scheme, corporate safe, no people, "
@@ -304,7 +260,6 @@ class NewsBot:
         return f"{clean_title[:150]}, {base_prompt}"
 
     async def _generate_and_process_image(self, title: str) -> Optional[bytes]:
-        """Генерирует изображение с обработкой ошибок"""
         try:
             image_prompt = self._generate_safe_image_prompt(title)
             logger.info(f"Генерация изображения для: {title[:50]}...")
@@ -324,7 +279,6 @@ class NewsBot:
             return self.fallback_image
 
     async def process_news(self):
-        """Основной цикл обработки новостей"""
         try:
             logger.info("=== НАЧАЛО ОБРАБОТКИ НОВОСТЕЙ ===")
             urls = [
@@ -371,7 +325,6 @@ class NewsBot:
                         entry.get('description', '')
                     )
                     
-                    # Генерация изображения
                     image_bytes = await self._generate_and_process_image(entry.get('title', ''))
                     
                     await self._send_for_moderation(
@@ -381,7 +334,7 @@ class NewsBot:
                         url=entry.get('url')
                     )
                     
-                    await asyncio.sleep(15)  # Задержка между обработкой новостей
+                    await asyncio.sleep(15)
                     
                 except Exception as e:
                     logger.error(f"Ошибка обработки новости: {str(e)}")
@@ -428,93 +381,151 @@ class NewsBot:
             logger.error(f"Ошибка отправки на модерацию: {str(e)}")
 
     async def handle_button(self, update, context):
-        """Обработка кнопок админа"""
         query = update.callback_query
+        await query.answer()
         
         try:
-            await query.answer()
-            
-            if ':' not in query.data:
-                logger.error(f"Неверный формат callback_data: {query.data}")
-                return
-                
             action, post_id = query.data.split(':', 1)
-            
-            self.db_queue.put(('update_status', post_id, 
-                             'published' if action == 'approve' else 'rejected'))
+            logger.info(f"Обработка: {action} для поста {post_id}")
             
             if action == 'approve':
-                await self._publish_post(post_id)
+                # Обновляем статус в БД
+                self.db_queue.put(('update_status', post_id, 'published'))
+                
+                # Получаем данные поста из БД
+                conn = sqlite3.connect('posts.db')
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT text, image_path, source, url FROM posts WHERE id=?",
+                    (post_id,)
+                )
+                post = cursor.fetchone()
+                conn.close()
+                
+                if post:
+                    text, image_path, source, url = post
+                    caption = f"{source}\n\n{text}\n\n{url}" if url else f"{source}\n\n{text}"
+                    
+                    try:
+                        if image_path and os.path.exists(image_path):
+                            with open(image_path, 'rb') as f:
+                                await self.bot.send_photo(
+                                    chat_id=os.getenv("TELEGRAM_CHANNEL_ID"),
+                                    photo=f,
+                                    caption=caption[:1000],
+                                    parse_mode='HTML'
+                                )
+                        else:
+                            await self.bot.send_message(
+                                chat_id=os.getenv("TELEGRAM_CHANNEL_ID"),
+                                text=caption,
+                                parse_mode='HTML',
+                                disable_web_page_preview=True
+                            )
+                        
+                        # Редактируем сообщение с кнопками
+                        try:
+                            if hasattr(query.message, 'caption'):
+                                new_text = f"✅ Опубликовано\n\n{query.message.caption}"
+                                await query.edit_message_caption(
+                                    caption=new_text[:1024],
+                                    reply_markup=None
+                                )
+                            else:
+                                new_text = f"✅ Опубликовано\n\n{query.message.text}"
+                                await query.edit_message_text(
+                                    text=new_text,
+                                    reply_markup=None,
+                                    parse_mode='HTML',
+                                    disable_web_page_preview=True
+                                )
+                        except Exception as e:
+                            logger.error(f"Ошибка редактирования сообщения: {str(e)}")
+                            
+                    except Exception as e:
+                        logger.error(f"Ошибка публикации в канал: {str(e)}")
+                        await query.answer("⚠️ Ошибка публикации", show_alert=True)
+                else:
+                    await query.answer("⚠️ Пост не найден", show_alert=True)
+            
+            elif action == 'reject':
                 try:
-                    if query.message.caption:
+                    if hasattr(query.message, 'caption'):
+                        new_text = f"❌ Отклонено\n\n{query.message.caption}"
                         await query.edit_message_caption(
-                            caption=f"✅ Опубликовано\n\n{query.message.caption}"
+                            caption=new_text[:1024],
+                            reply_markup=None
                         )
                     else:
+                        new_text = f"❌ Отклонено\n\n{query.message.text}"
                         await query.edit_message_text(
-                            text=f"✅ Опубликовано\n\n{query.message.text}"
+                            text=new_text,
+                            reply_markup=None,
+                            parse_mode='HTML',
+                            disable_web_page_preview=True
                         )
                 except Exception as e:
-                    logger.warning(f"Ошибка обновления сообщения: {str(e)}")
-                    
+                    logger.error(f"Ошибка редактирования сообщения: {str(e)}")
+                
         except Exception as e:
             logger.error(f"Ошибка обработки кнопки: {str(e)}")
-
-    async def _publish_post(self, post_id: str):
-        """Публикация конкретного поста"""
-        try:
-            self.db_queue.put(('publish_post', post_id))
-            logger.info(f"Пост {post_id} поставлен в очередь на публикацию")
-        except Exception as e:
-            logger.error(f"Ошибка публикации поста {post_id}: {str(e)}")
+            await query.answer("⚠️ Произошла ошибка", show_alert=True)
 
     def run(self):
         """Запуск бота с проверкой новостей каждые 2 часа"""
         try:
             CHECK_INTERVAL = 60 * 60 * 2  # 2 часа
             
-            def news_loop():
+            async def news_loop():
                 while not self.shutdown_event.is_set():
                     try:
                         start_time = time.time()
                         logger.info("=== ЗАПУСК ПРОВЕРКИ НОВОСТЕЙ ===")
                         
-                        asyncio.run(self.process_news())
+                        await self.process_news()
                         
                         elapsed = time.time() - start_time
                         sleep_time = max(CHECK_INTERVAL - elapsed, 0)
                         logger.info(f"Следующая проверка через {sleep_time/60:.1f} минут")
                         
-                        for _ in range(int(sleep_time)):
-                            if self.shutdown_event.is_set():
-                                break
-                            time.sleep(1)
+                        await asyncio.sleep(sleep_time)
                             
                     except Exception as e:
                         logger.error(f"Ошибка в цикле проверки новостей: {str(e)}")
-                        time.sleep(60)
+                        await asyncio.sleep(60)
                 
                 logger.info("Цикл проверки новостей остановлен")
             
-            news_thread = threading.Thread(target=news_loop, daemon=True)
-            news_thread.start()
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             
-            app = Application.builder() \
+            application = Application.builder() \
                 .token(os.getenv("TELEGRAM_BOT_TOKEN")) \
                 .build()
-            app.add_handler(CallbackQueryHandler(self.handle_button))
             
-            logger.info("Бот успешно запущен")
+            application.add_handler(CallbackQueryHandler(self.handle_button))
             
-            # Ожидаем завершения
-            while not self.shutdown_event.is_set():
-                time.sleep(1)
+            async def main():
+                news_task = asyncio.create_task(news_loop())
+                await application.initialize()
+                await application.start()
+                await application.updater.start_polling()
                 
-            logger.info("Завершение работы приложения...")
-            app.stop()
-            app.shutdown()
-            logger.info("Приложение остановлено")
+                while not self.shutdown_event.is_set():
+                    await asyncio.sleep(1)
+                
+                await application.stop()
+                await application.shutdown()
+                news_task.cancel()
             
+            try:
+                loop.run_until_complete(main())
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                pass
+            finally:
+                loop.close()
+            
+            logger.info("Бот успешно остановлен")
         except Exception as e:
             logger.critical(f"Фатальная ошибка при запуске: {str(e)}")
 
